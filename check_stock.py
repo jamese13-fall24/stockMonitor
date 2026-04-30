@@ -1,51 +1,91 @@
 import os
 import re
+import json
 import smtplib
 import requests
-import cloudscraper
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
 
-URL = "https://store.blitsgames.com/product/gentleman-studio-goro-nomoru-figure/"
+PRODUCT_URL = "https://store.blitsgames.com/product/gentleman-studio-goro-nomoru-figure/"
+PRODUCT_SLUG = "gentleman-studio-goro-nomoru-figure"
+STORE_BASE = "https://store.blitsgames.com"
 ALERT_THRESHOLDS = [10, 5]
 
 GMAIL_USER = os.environ["GMAIL_USER"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 NOTIFY_EMAIL = os.environ["NOTIFY_EMAIL"]
+SCRAPERAPI_KEY = os.environ["SCRAPERAPI_KEY"]
 
 
-def get_stock_count():
-    # cloudscraper handles Cloudflare/bot-protection automatically
-    try:
-        scraper = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows"})
-        response = scraper.get(URL, timeout=20)
-        response.raise_for_status()
-    except Exception as e:
-        print(f"cloudscraper failed ({e}), trying requests fallback...")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.google.com/",
-        }
-        session = requests.Session()
-        session.get("https://store.blitsgames.com/", headers=headers, timeout=15)
-        response = session.get(URL, headers=headers, timeout=15)
-        response.raise_for_status()
+def fetch_via_woocommerce_api():
+    """WooCommerce stores expose a REST API. Try to get stock from it directly."""
+    print("Trying WooCommerce REST API...")
+    api_url = f"{STORE_BASE}/wp-json/wc/v3/products"
+    params = {"slug": PRODUCT_SLUG, "per_page": 1}
+    response = requests.get(api_url, params=params, timeout=15)
+    response.raise_for_status()
+    products = response.json()
+    if products and isinstance(products, list):
+        product = products[0]
+        stock = product.get("stock_quantity")
+        print(f"WooCommerce API returned stock: {stock}")
+        return stock
+    return None
 
-    soup = BeautifulSoup(response.text, "html.parser")
+
+def fetch_via_scraperapi():
+    """Use ScraperAPI's direct API endpoint with JS rendering enabled."""
+    api_url = "https://api.scraperapi.com/"
+    params = {
+        "api_key": SCRAPERAPI_KEY,
+        "url": PRODUCT_URL,
+        "render": "true",
+        "country_code": "us",
+    }
+    print("Fetching via ScraperAPI (JS rendering)...")
+    response = requests.get(api_url, params=params, timeout=60)
+    response.raise_for_status()
+    return response.text
+
+
+def parse_stock_from_html(html):
+    """Parse stock count from page HTML using multiple patterns."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 1. Check JSON-LD structured data
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string)
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if isinstance(item, dict):
+                    offer = item.get("offers", {})
+                    if isinstance(offer, list):
+                        offer = offer[0] if offer else {}
+                    inventory = offer.get("inventoryLevel", {})
+                    if isinstance(inventory, dict) and "value" in inventory:
+                        return int(inventory["value"])
+        except Exception:
+            pass
+
+    # 2. WooCommerce stock status elements
+    stock_el = soup.find(class_=re.compile(r"stock|availability", re.I))
+    if stock_el:
+        text = stock_el.get_text()
+        match = re.search(r'(\d+)', text)
+        if match:
+            return int(match.group(1))
+
+    # 3. Broad text search
     text = soup.get_text(" ", strip=True)
-
-    # Look for patterns like "30 in stock", "Only 10 left", "5 left in stock"
     patterns = [
         r'(\d+)\s+in\s+stock',
         r'only\s+(\d+)\s+left',
         r'(\d+)\s+left\s+in\s+stock',
-        r'stock[:\s]+(\d+)',
         r'(\d+)\s+available',
+        r'stock[:\s]+(\d+)',
     ]
-
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
@@ -54,23 +94,43 @@ def get_stock_count():
     return None
 
 
+def get_stock_count():
+    # Method 1: WooCommerce REST API
+    try:
+        stock = fetch_via_woocommerce_api()
+        if stock is not None:
+            return stock
+    except Exception as e:
+        print(f"WooCommerce API failed: {e}")
+
+    # Method 2: ScraperAPI with JS rendering
+    try:
+        html = fetch_via_scraperapi()
+        stock = parse_stock_from_html(html)
+        if stock is not None:
+            return stock
+        print("Page fetched but stock number not found. Snippet:")
+        print(html[:2000])
+    except Exception as e:
+        print(f"ScraperAPI failed: {e}")
+
+    return None
+
+
 def send_email(stock_count):
-    subject = f"⚠️ Stock Alert: Only {stock_count} Goro Nomoru Figure(s) Left!"
-    body = f"""
-Hi there!
+    subject = f"Stock Alert: Only {stock_count} Goro Nomoru Figure(s) Left!"
+    body = f"""Hi there!
 
-This is your stock alert for the Gentleman Studio – Goro Nomoru Figure.
+This is your automated stock alert for the Gentleman Studio - Goro Nomoru Figure.
 
-🔔 Current Stock: {stock_count} remaining
+Current Stock: {stock_count} remaining
 
 Act fast before it sells out!
-👉 {URL}
+{PRODUCT_URL}
 
 ---
-This alert was triggered because stock dropped to {stock_count} (threshold: {', '.join(str(t) for t in ALERT_THRESHOLDS)}).
-You will receive another alert at the next threshold.
+Thresholds monitored: {', '.join(str(t) for t in sorted(ALERT_THRESHOLDS))}
 """
-
     msg = MIMEMultipart()
     msg["From"] = GMAIL_USER
     msg["To"] = NOTIFY_EMAIL
@@ -81,26 +141,26 @@ You will receive another alert at the next threshold.
         server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         server.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
 
-    print(f"✅ Alert email sent for stock count: {stock_count}")
+    print(f"Alert email sent for stock count: {stock_count}")
 
 
 def main():
-    print(f"Checking stock at: {URL}")
+    print(f"Checking stock at: {PRODUCT_URL}")
     stock = get_stock_count()
 
     if stock is None:
-        print("⚠️  Could not find stock count on the page. The page format may have changed.")
+        print("Could not determine stock count. Manual check recommended.")
         return
 
-    print(f"📦 Current stock: {stock}")
+    print(f"Current stock: {stock}")
 
-    for threshold in ALERT_THRESHOLDS:
+    for threshold in sorted(ALERT_THRESHOLDS, reverse=True):
         if stock <= threshold:
-            print(f"🚨 Stock ({stock}) is at or below threshold ({threshold}). Sending alert...")
+            print(f"Stock ({stock}) is at or below threshold ({threshold}). Sending alert...")
             send_email(stock)
-            break  # Only send one email per run (for the lowest triggered threshold)
+            break
     else:
-        print(f"✅ Stock ({stock}) is above all thresholds. No alert needed.")
+        print(f"Stock ({stock}) is above all thresholds. No alert needed.")
 
 
 if __name__ == "__main__":
