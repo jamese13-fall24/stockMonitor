@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 PRODUCT_URL = "https://store.blitsgames.com/product/gentleman-studio-goro-nomoru-figure/"
 PRODUCT_SLUG = "gentleman-studio-goro-nomoru-figure"
 STORE_BASE = "https://store.blitsgames.com"
-ALERT_THRESHOLDS = [30, 20, 10, 5]
+ALERT_THRESHOLDS = [10, 5]
 
 GMAIL_USER = os.environ["GMAIL_USER"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
@@ -106,11 +106,20 @@ def get_stock_count():
     # Method 2: ScraperAPI with JS rendering
     try:
         html = fetch_via_scraperapi()
+        soup = BeautifulSoup(html, "html.parser")
+        print("--- DEBUG: stock-related elements ---")
+        for el in soup.find_all(class_=re.compile(r"stock|quantity|inventory|avail", re.I)):
+            print(f"  TAG={el.name} CLASS={el.get("class")} TEXT={el.get_text(strip=True)[:100]}")
+        full_text = soup.get_text(" ")
+        for line in full_text.splitlines():
+            line = line.strip()
+            if re.search(r"in stock|left in|available|qty", line, re.I) and line:
+                print(f"  LINE: {line[:120]}")
+        print("--- END DEBUG ---")
         stock = parse_stock_from_html(html)
         if stock is not None:
             return stock
-        print("Page fetched but stock number not found. Snippet:")
-        print(html[:2000])
+        print("Page fetched but stock number not found.")
     except Exception as e:
         print(f"ScraperAPI failed: {e}")
 
