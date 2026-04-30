@@ -2,6 +2,7 @@ import os
 import re
 import smtplib
 import requests
+import cloudscraper
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
@@ -15,9 +16,23 @@ NOTIFY_EMAIL = os.environ["NOTIFY_EMAIL"]
 
 
 def get_stock_count():
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(URL, headers=headers, timeout=15)
-    response.raise_for_status()
+    # cloudscraper handles Cloudflare/bot-protection automatically
+    try:
+        scraper = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows"})
+        response = scraper.get(URL, timeout=20)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"cloudscraper failed ({e}), trying requests fallback...")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.google.com/",
+        }
+        session = requests.Session()
+        session.get("https://store.blitsgames.com/", headers=headers, timeout=15)
+        response = session.get(URL, headers=headers, timeout=15)
+        response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
     text = soup.get_text(" ", strip=True)
