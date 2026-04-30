@@ -15,17 +15,15 @@ NOTIFY_EMAIL = os.environ["NOTIFY_EMAIL"]
 SCRAPERAPI_KEY = os.environ["SCRAPERAPI_KEY"]
 
 
-def fetch_via_scraperapi(wait_ms=5000):
+def fetch_via_scraperapi():
     params = {
         "api_key": SCRAPERAPI_KEY,
         "url": PRODUCT_URL,
         "render": "true",
         "country_code": "us",
-        "wait_for_selector": ".woostify-single-product-stock-label",
-        "wait": wait_ms,
     }
-    print("Fetching via ScraperAPI (wait=" + str(wait_ms) + "ms)...")
-    r = requests.get("https://api.scraperapi.com/", params=params, timeout=90)
+    print("Fetching via ScraperAPI...")
+    r = requests.get("https://api.scraperapi.com/", params=params, timeout=60)
     r.raise_for_status()
     return r.text
 
@@ -33,42 +31,23 @@ def fetch_via_scraperapi(wait_ms=5000):
 def parse_stock_from_html(html):
     soup = BeautifulSoup(html, "html.parser")
 
-    # Primary: Woostify stock label
-    stock_label = soup.find("span", class_="woostify-single-product-stock-label")
-    if stock_label:
-        text = stock_label.get_text(strip=True)
-        print("Stock label found: " + text)
-        m = re.search(r'(\d+)', text)
-        if m:
-            return int(m.group(1))
+    # The quantity input's max attribute always equals the stock count
+    qty_input = soup.find("input", {"name": "quantity", "class": re.compile(r"qty")})
+    if qty_input and qty_input.get("max"):
+        val = qty_input["max"]
+        print("Stock from quantity input max: " + val)
+        return int(val)
 
-    # Fallback: any element containing "in stock" text
-    for el in soup.find_all(string=re.compile(r'\d+\s+in\s+stock', re.I)):
-        m = re.search(r'(\d+)\s+in\s+stock', el, re.I)
-        if m:
-            print("Stock from text node: " + el.strip())
-            return int(m.group(1))
-
-    # Debug: show all class names that contain "stock"
-    print("=== DEBUG: all elements with 'stock' in class ===")
-    for el in soup.find_all(class_=re.compile(r'stock', re.I)):
-        print("  " + el.name + " | " + str(el.get('class')) + " | " + el.get_text(strip=True)[:80])
-    print("=== END DEBUG ===")
-
+    print("Quantity input not found in page.")
     return None
 
 
 def get_stock_count():
-    # Try with increasing wait times
-    for wait in [5000, 10000]:
-        try:
-            html = fetch_via_scraperapi(wait_ms=wait)
-            stock = parse_stock_from_html(html)
-            if stock is not None:
-                return stock
-            print("Retrying with longer wait...")
-        except Exception as e:
-            print("ScraperAPI failed: " + str(e))
+    try:
+        html = fetch_via_scraperapi()
+        return parse_stock_from_html(html)
+    except Exception as e:
+        print("ScraperAPI failed: " + str(e))
     return None
 
 
