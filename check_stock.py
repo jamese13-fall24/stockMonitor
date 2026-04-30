@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
 
 PRODUCT_URL = "https://store.blitsgames.com/product/gentleman-studio-goro-nomoru-figure/"
-ALERT_THRESHOLDS = [10, 5]
+ALERT_THRESHOLDS = [30, 20, 10, 5]
 
 GMAIL_USER = os.environ["GMAIL_USER"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
