@@ -18,15 +18,13 @@ SCRAPERAPI_KEY = os.environ["SCRAPERAPI_KEY"]
 
 
 def load_state():
-    """Load the last alerted threshold from state file."""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             return json.load(f)
-    return {"last_alerted_threshold": None}
+    return {"alerted_thresholds": []}
 
 
 def save_state(state):
-    """Save state back to file."""
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
     print("State saved: " + str(state))
@@ -97,31 +95,29 @@ def main():
     print("Current stock: " + str(stock))
 
     state = load_state()
-    last_alerted = state.get("last_alerted_threshold")
-    print("Last alerted threshold: " + str(last_alerted))
+    # Support both old and new state format
+    alerted = set(state.get("alerted_thresholds") or [])
+    print("Already alerted thresholds: " + str(alerted))
 
-    # Find the highest threshold that stock has dropped below
-    triggered = None
-    for threshold in sorted(ALERT_THRESHOLDS, reverse=True):
-        if stock < threshold:
-            triggered = threshold
-            break
+    # Find all thresholds that stock has dropped below and not yet alerted
+    new_alerts = [t for t in sorted(ALERT_THRESHOLDS, reverse=True)
+                  if stock < t and t not in alerted]
 
-    if triggered is None:
-        print("Stock is above all thresholds. No alert needed.")
-        # Reset state if stock has recovered above all thresholds
-        if last_alerted is not None:
-            save_state({"last_alerted_threshold": None})
+    if not new_alerts:
+        print("No new thresholds crossed. No email needed.")
+        # Reset alerted thresholds that stock has recovered above
+        recovered = [t for t in alerted if stock >= t]
+        if recovered:
+            alerted -= set(recovered)
+            save_state({"alerted_thresholds": list(alerted)})
         return
 
-    if triggered == last_alerted:
-        print("Already alerted for threshold " + str(triggered) + ". No new email needed.")
-        return
+    for threshold in new_alerts:
+        print("New threshold crossed: below " + str(threshold) + ". Sending alert...")
+        send_email(stock, threshold)
+        alerted.add(threshold)
 
-    # New threshold crossed — send email and save state
-    print("New threshold crossed: below " + str(triggered) + ". Sending alert...")
-    send_email(stock, triggered)
-    save_state({"last_alerted_threshold": triggered})
+    save_state({"alerted_thresholds": list(alerted)})
 
 
 if __name__ == "__main__":
