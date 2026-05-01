@@ -101,7 +101,7 @@ def main():
 
     # Find all thresholds that stock has dropped below and not yet alerted
     new_alerts = [t for t in sorted(ALERT_THRESHOLDS, reverse=True)
-                  if stock < t and t not in alerted]
+                  if stock <= t and t not in alerted]
 
     if not new_alerts:
         print("No new thresholds crossed. No email needed.")
