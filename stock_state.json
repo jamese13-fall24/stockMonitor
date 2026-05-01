@@ -1,2 +1,1 @@
-
-{"last_alerted_threshold": null}
+{"alerted_thresholds": [25, 20]}
