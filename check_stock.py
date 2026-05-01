@@ -54,12 +54,18 @@ def parse_stock_from_html(html):
     return None
 
 
-def get_stock_count():
-    try:
-        html = fetch_via_scraperapi()
-        return parse_stock_from_html(html)
-    except Exception as e:
-        print("ScraperAPI failed: " + str(e))
+def get_stock_count(retries=3, delay=30):
+    import time
+    for attempt in range(1, retries + 1):
+        try:
+            html = fetch_via_scraperapi()
+            return parse_stock_from_html(html)
+        except Exception as e:
+            print("Attempt " + str(attempt) + " failed: " + str(e))
+            if attempt < retries:
+                print("Retrying in " + str(delay) + " seconds...")
+                time.sleep(delay)
+    print("All " + str(retries) + " attempts failed.")
     return None
 
 
