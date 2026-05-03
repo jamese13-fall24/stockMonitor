@@ -112,7 +112,7 @@ def main():
     if not new_alerts:
         print("No new thresholds crossed. No email needed.")
         # Reset alerted thresholds that stock has recovered above
-        recovered = [t for t in alerted if stock >= t]
+        recovered = [t for t in alerted if stock > t]
         if recovered:
             alerted -= set(recovered)
             save_state({"alerted_thresholds": list(alerted)})
