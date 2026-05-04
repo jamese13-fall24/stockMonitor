@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from bs4 import BeautifulSoup
 
 PRODUCT_URL = "https://store.blitsgames.com/product/gentleman-studio-goro-nomoru-figure/"
-ALERT_THRESHOLDS = [25, 20, 15, 10, 5]
+ALERT_THRESHOLDS = [25, 20, 15, 10, 5, 4, 3, 2, 1, 0]
 STATE_FILE = "stock_state.json"
 
 GMAIL_USER = os.environ["GMAIL_USER"]
