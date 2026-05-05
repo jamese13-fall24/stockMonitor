@@ -1,8 +1,8 @@
 name: Stock Monitor – Goro Nomoru Figure
 
 on:
-  schedule:
-    - cron: '0 * * * *'     # Every hour
+  # schedule:
+  #   - cron: '0 * * * *'     # Every hour
   workflow_dispatch:
 
 jobs:
